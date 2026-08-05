@@ -25,7 +25,7 @@ const sender = `G${"B".repeat(55)}`;
 const messageId = "a".repeat(64);
 
 class FailingRepository implements ApiRepository {
-  private readonly inner = new MemoryApiRepository();
+  public readonly inner = new MemoryApiRepository();
   private readonly failCounts = new Map<string, number>();
   private readonly callCounts = new Map<string, number>();
 
@@ -94,9 +94,13 @@ class FailingRepository implements ApiRepository {
     this.maybeFail("setReceipt");
     return this.inner.setReceipt(receipt);
   }
-  async acquireIdempotencyRecord(key: string, leaseMs: number): Promise<AcquireIdempotencyResult> {
+  async acquireIdempotencyRecord(
+    key: string,
+    requestDigest: string,
+    leaseMs: number,
+  ): Promise<AcquireIdempotencyResult> {
     this.maybeFail("acquireIdempotencyRecord");
-    return this.inner.acquireIdempotencyRecord(key, leaseMs);
+    return this.inner.acquireIdempotencyRecord(key, requestDigest, leaseMs);
   }
   async getIdempotencyRecord(key: string): Promise<IdempotencyRecord | null> {
     this.maybeFail("getIdempotencyRecord");
@@ -134,6 +138,14 @@ class FailingRepository implements ApiRepository {
     this.maybeFail("incrementCounter");
     return this.inner.incrementCounter(key, windowSeconds, amount);
   }
+  async createReceiptIfAbsent(receipt: Receipt) {
+    this.maybeFail("createReceiptIfAbsent");
+    return this.inner.createReceiptIfAbsent(receipt);
+  }
+  async markReceiptRead(messageId: string, actor: string, now?: Date) {
+    this.maybeFail("markReceiptRead");
+    return this.inner.markReceiptRead(messageId, actor, now);
+  }
   reset(): void {
     this.inner.reset();
   }
@@ -155,7 +167,7 @@ describe("RetryableApiRepository", () => {
       amount: "100",
       createdAt: new Date().toISOString(),
       status: "pending",
-    });
+    } as any);
 
     const result = await repo.getPostage(messageId);
 
@@ -167,12 +179,12 @@ describe("RetryableApiRepository", () => {
   it("retries a safe write operation on transient failure", async () => {
     failing.setFailCount("setPostage", 2);
 
-    const postage: Postage = {
+    const postage = {
       messageId,
       amount: "100",
       createdAt: new Date().toISOString(),
       status: "pending",
-    };
+    } as any;
     const result = await repo.setPostage(postage);
 
     expect(result.messageId).toBe(messageId);
@@ -181,15 +193,15 @@ describe("RetryableApiRepository", () => {
 
   it("retries transitionPostage (CAS) on transient failure", async () => {
     failing.setFailCount("transitionPostage", 1);
-    const postage: Postage = {
+    const postage = {
       messageId,
       amount: "100",
       createdAt: new Date().toISOString(),
       status: "pending",
-    };
+    } as any;
     await failing.inner.setPostage(postage);
 
-    const result = await repo.transitionPostage(messageId, "pending", "accepted");
+    const result = await repo.transitionPostage(messageId, "pending", "settled");
 
     expect(result.outcome).toBe("applied");
     expect(failing.getCallCount("transitionPostage")).toBe(2);
@@ -218,12 +230,11 @@ describe("RetryableApiRepository", () => {
   });
 
   it("does not retry when the error is non-retryable (permanent)", async () => {
-    const permanentFailRepo: ApiRepository = {
-      ...new MemoryApiRepository(),
-      getPolicy: async () => {
-        throw new ApiError(404, "not_found", "not found");
-      },
+    const permanentFailRepo = new MemoryApiRepository();
+    permanentFailRepo.getPolicy = async () => {
+      throw new ApiError(404, "not_found", "not found");
     };
+
     const nonRetryRepo = new RetryableApiRepository(permanentFailRepo, {
       maxAttempts: 3,
       baseDelayMs: 1,
@@ -235,12 +246,12 @@ describe("RetryableApiRepository", () => {
   it("does not retry insertPostage (unsafe write)", async () => {
     failing.setFailCount("insertPostage", 2);
 
-    const postage: Postage = {
+    const postage = {
       messageId,
       amount: "100",
       createdAt: new Date().toISOString(),
       status: "pending",
-    };
+    } as any;
 
     await expect(repo.insertPostage(postage)).rejects.toThrow();
     expect(failing.getCallCount("insertPostage")).toBe(1);
@@ -249,7 +260,7 @@ describe("RetryableApiRepository", () => {
   it("does not retry acquireIdempotencyRecord (unsafe write)", async () => {
     failing.setFailCount("acquireIdempotencyRecord", 2);
 
-    await expect(repo.acquireIdempotencyRecord("key", 30_000)).rejects.toThrow();
+    await expect(repo.acquireIdempotencyRecord("key", "digest", 30_000)).rejects.toThrow();
     expect(failing.getCallCount("acquireIdempotencyRecord")).toBe(1);
   });
 
@@ -262,24 +273,23 @@ describe("RetryableApiRepository", () => {
 
   it("does not duplicate unsafe write side effects on failure", async () => {
     let insertCount = 0;
-    const trackingRepo: ApiRepository = {
-      ...new MemoryApiRepository(),
-      insertPostage: async (postage: Postage) => {
-        insertCount++;
-        throw new ApiError(500, "internal_error", "transient");
-      },
+    const trackingRepo = new MemoryApiRepository();
+    trackingRepo.insertPostage = async (postage: Postage) => {
+      insertCount++;
+      throw new ApiError(500, "internal_error", "transient");
     };
+
     const retryRepo = new RetryableApiRepository(trackingRepo, {
       maxAttempts: 3,
       baseDelayMs: 1,
     });
 
-    const postage: Postage = {
+    const postage = {
       messageId,
       amount: "100",
       createdAt: new Date().toISOString(),
       status: "pending",
-    };
+    } as any;
 
     await expect(retryRepo.insertPostage(postage)).rejects.toThrow();
     expect(insertCount).toBe(1);

@@ -14,7 +14,7 @@ vi.mock("cloudflare:workers", () => {
 });
 
 import { StealthCoordinator } from "../../../src/server/api/stealth-coordinator";
-import type { IdempotencyRecord, Postage } from "../../../src/server/api/domain";
+import type { IdempotencyRecord, Postage, Receipt } from "../../../src/server/api/domain";
 
 class MockDurableObjectState {
   public id = { toString: () => "mock-do-id" };
@@ -43,14 +43,85 @@ describe("StealthCoordinator - Durable Object Operations", () => {
 
   it("handles idempotency records", async () => {
     const record: IdempotencyRecord = {
+      state: "completed",
       body: { ok: true },
+      requestDigest: "digest-1",
       createdAt: new Date().toISOString(),
+      completedAt: new Date().toISOString(),
       status: 201,
     };
 
     expect(await coordinator.getIdempotencyRecord("key-1")).toBeNull();
     await coordinator.setIdempotencyRecord("key-1", record);
     expect(await coordinator.getIdempotencyRecord("key-1")).toEqual(record);
+  });
+
+  describe("idempotency lease acquisition (issue #1498)", () => {
+    it("acquires, blocks concurrent followers, and replays after completion", async () => {
+      const first = await coordinator.acquireIdempotencyRecord("key-2", "digest-a", 30_000);
+      expect(first).toEqual({ status: "acquired" });
+
+      const second = await coordinator.acquireIdempotencyRecord("key-2", "digest-a", 30_000);
+      expect(second).toEqual({ status: "in_progress" });
+
+      await coordinator.setIdempotencyRecord("key-2", {
+        state: "completed",
+        status: 200,
+        body: { ok: true },
+        requestDigest: "digest-a",
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      });
+
+      const third = await coordinator.acquireIdempotencyRecord("key-2", "digest-a", 30_000);
+      expect(third).toMatchObject({ status: "completed", record: { body: { ok: true } } });
+    });
+
+    it("returns conflict when the same key is reused with a different payload digest", async () => {
+      await coordinator.acquireIdempotencyRecord("key-3", "digest-a", 30_000);
+
+      const mismatchWhileInProgress = await coordinator.acquireIdempotencyRecord(
+        "key-3",
+        "digest-b",
+        30_000,
+      );
+      expect(mismatchWhileInProgress).toEqual({ status: "conflict" });
+
+      await coordinator.setIdempotencyRecord("key-3", {
+        state: "completed",
+        status: 200,
+        body: { ok: true },
+        requestDigest: "digest-a",
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      });
+
+      const mismatchAfterCompletion = await coordinator.acquireIdempotencyRecord(
+        "key-3",
+        "digest-b",
+        30_000,
+      );
+      expect(mismatchAfterCompletion).toEqual({ status: "conflict" });
+    });
+
+    it("survives independent API contexts sharing the same durable storage", async () => {
+      // Simulates two separate Worker invocations reaching the same Durable
+      // Object storage: a fresh StealthCoordinator instance, backed by the
+      // same underlying storage, must observe state left by the other.
+      await coordinator.acquireIdempotencyRecord("key-4", "digest-a", 30_000);
+      await coordinator.setIdempotencyRecord("key-4", {
+        state: "completed",
+        status: 200,
+        body: { settled: true },
+        requestDigest: "digest-a",
+        createdAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      });
+
+      const independentContext = new StealthCoordinator(state as any, {});
+      const replay = await independentContext.acquireIdempotencyRecord("key-4", "digest-a", 30_000);
+      expect(replay).toMatchObject({ status: "completed", record: { body: { settled: true } } });
+    });
   });
 
   it("handles counter sliding window rate-limiting", async () => {
@@ -78,6 +149,55 @@ describe("StealthCoordinator - Durable Object Operations", () => {
     expect(await coordinator.getCounter("limiter-1")).toBe(2);
 
     dateSpy.mockRestore();
+  });
+
+  it("creates receipts once and replays duplicate deliveries", async () => {
+    const receipt: Receipt = {
+      deliveredAt: "2026-06-14T12:00:00.000Z",
+      messageId: "a".repeat(64),
+      readAt: null,
+      recipient: `G${"A".repeat(55)}`,
+      sender: `G${"B".repeat(55)}`,
+    };
+    const duplicate = { ...receipt, deliveredAt: "2026-06-14T12:05:00.000Z" };
+
+    await expect(coordinator.createReceiptIfAbsent(receipt)).resolves.toEqual({
+      created: true,
+      receipt,
+    });
+    await expect(coordinator.createReceiptIfAbsent(duplicate)).resolves.toEqual({
+      created: false,
+      receipt,
+    });
+    await expect(coordinator.getReceipt(receipt.messageId)).resolves.toEqual(receipt);
+  });
+
+  it("marks receipts read once and replays duplicate reads", async () => {
+    const receipt: Receipt = {
+      deliveredAt: "2026-06-14T12:00:00.000Z",
+      messageId: "b".repeat(64),
+      readAt: null,
+      recipient: `G${"A".repeat(55)}`,
+      sender: `G${"B".repeat(55)}`,
+    };
+    const expected = { ...receipt, readAt: "2026-06-14T12:30:00.000Z" };
+
+    await coordinator.setReceipt(receipt);
+
+    await expect(
+      coordinator.markReceiptRead(
+        receipt.messageId,
+        receipt.recipient,
+        new Date("2026-06-14T12:30:00.000Z"),
+      ),
+    ).resolves.toEqual({ outcome: "marked", receipt: expected });
+    await expect(
+      coordinator.markReceiptRead(
+        receipt.messageId,
+        receipt.recipient,
+        new Date("2026-06-14T12:45:00.000Z"),
+      ),
+    ).resolves.toEqual({ outcome: "already-read", readAt: expected.readAt });
   });
 
   describe("postage settlement transitions", () => {

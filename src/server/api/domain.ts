@@ -43,13 +43,62 @@ export const postageSchema = z.object({
   status: postageStatusSchema,
 });
 
-export const receiptSchema = z.object({
-  deliveredAt: z.string().datetime(),
-  messageId: hash32Schema,
-  readAt: z.string().datetime().nullable(),
-  recipient: stellarAddressSchema,
-  sender: stellarAddressSchema,
-});
+export const DEFAULT_RECEIPT_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
+
+export interface ReceiptSchemaOptions {
+  maxFutureSkewMs?: number;
+  now?: () => Date;
+}
+
+export function createReceiptSchema(options: ReceiptSchemaOptions = {}) {
+  const { maxFutureSkewMs = DEFAULT_RECEIPT_FUTURE_TOLERANCE_MS, now = () => new Date() } = options;
+
+  return z
+    .object({
+      deliveredAt: z.string().datetime({ offset: true }),
+      messageId: hash32Schema,
+      readAt: z.string().datetime({ offset: true }).nullable(),
+      recipient: stellarAddressSchema,
+      sender: stellarAddressSchema,
+    })
+    .superRefine((data, ctx) => {
+      const deliveredMs = Date.parse(data.deliveredAt);
+      const referenceMs = now().getTime();
+      const maxAllowedMs = referenceMs + maxFutureSkewMs;
+
+      if (!isNaN(deliveredMs) && deliveredMs > maxAllowedMs) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: "Delivery timestamp is too far in the future",
+          path: ["deliveredAt"],
+        });
+      }
+
+      if (data.readAt !== null) {
+        const readMs = Date.parse(data.readAt);
+
+        if (!isNaN(readMs)) {
+          if (!isNaN(deliveredMs) && readMs < deliveredMs) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Read time cannot precede delivery time",
+              path: ["readAt"],
+            });
+          }
+
+          if (readMs > maxAllowedMs) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: "Read timestamp is too far in the future",
+              path: ["readAt"],
+            });
+          }
+        }
+      }
+    });
+}
+
+export const receiptSchema = createReceiptSchema();
 
 export type MailboxPolicy = z.infer<typeof mailboxPolicySchema>;
 export type Postage = z.infer<typeof postageSchema>;
@@ -60,6 +109,10 @@ export type SenderRule = z.infer<typeof senderRuleSchema>;
 export const idempotencyRecordSchema = z.discriminatedUnion("state", [
   z.object({
     state: z.literal("in_progress"),
+    // Issue #1498: canonical digest of the request that acquired this lease,
+    // so a same-key-different-payload retry is detected as a conflict
+    // instead of blocking behind (or later replaying) an unrelated request.
+    requestDigest: z.string(),
     createdAt: z.string().datetime(),
     recoveryExpiryAt: z.string().datetime(),
   }),
@@ -67,6 +120,7 @@ export const idempotencyRecordSchema = z.discriminatedUnion("state", [
     state: z.literal("completed"),
     status: z.number(),
     body: z.unknown(),
+    requestDigest: z.string(),
     createdAt: z.string().datetime(),
     completedAt: z.string().datetime(),
   }),

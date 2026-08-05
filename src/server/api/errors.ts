@@ -63,6 +63,13 @@ export const API_ERROR_REGISTRY = {
     retryable: true,
     description: "A request rate limit was exceeded.",
   },
+  dependency_unavailable: {
+    status: 503,
+    message: "A required dependency is unavailable",
+    retryable: true,
+    description:
+      "The server cannot handle the request because a required dependency is unavailable.",
+  },
   data_integrity_error: {
     status: 500,
     message: "Stored data failed integrity validation",
@@ -74,6 +81,12 @@ export const API_ERROR_REGISTRY = {
     message: "The challenge has expired",
     retryable: false,
     description: "The submitted authentication or quote challenge is no longer valid.",
+  },
+  challenge_not_yet_valid: {
+    status: 422,
+    message: "The challenge is not yet valid",
+    retryable: false,
+    description: "The submitted authentication challenge is dated too far in the future.",
   },
   idempotency_mismatch: {
     status: 409,
