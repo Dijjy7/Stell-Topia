@@ -1,19 +1,4 @@
-<p align="center">
-  <img src="./stell-topia-logo.svg" width="220" alt="Stell-Topia logo" />
-</p>
 
-<h1 align="center">🌌 Stell-Topia</h1>
-<p align="center"><em>Book the sky. Pay in stardust.</em></p>
-
-<p align="center">
-  <img alt="stack" src="https://img.shields.io/badge/API-Python-3776AB?style=flat-square" />
-  <img alt="stack" src="https://img.shields.io/badge/Backend-NestJS-E0234E?style=flat-square" />
-  <img alt="stack" src="https://img.shields.io/badge/Contracts-Rust%20%2F%20Soroban-DE4C2E?style=flat-square" />
-  <img alt="stack" src="https://img.shields.io/badge/Chain-Stellar-000000?style=flat-square" />
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" />
-</p>
-
----
 
 ## ✈️ What is Stell-Topia?
 
