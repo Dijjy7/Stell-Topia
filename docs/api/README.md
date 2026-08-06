@@ -1,4 +1,4 @@
-# Stealth Mail API
+# Stell-Topia
 
 The TanStack Start worker exposes versioned endpoints under `/api/v1`.
 
