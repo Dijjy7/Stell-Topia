@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.config import settings
 from app.schemas import SearchRequest, SearchResponse
+from app.security import get_current_user
 from app.services.providers import fare_aggregator
 
 router = APIRouter()
@@ -13,7 +14,7 @@ async def health() -> dict[str, str]:
 
 
 @router.post("/flights/search", response_model=SearchResponse, tags=["flights"])
-async def search_flights(query: SearchRequest) -> SearchResponse:
+async def search_flights(query: SearchRequest, _: str = Depends(get_current_user)) -> SearchResponse:
     try:
         flights = await fare_aggregator.search(query)
         return SearchResponse(
