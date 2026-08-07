@@ -7,6 +7,9 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     xlm_to_usd_rate: float = 0.11
     external_providers: list[str] = ["mock_a", "mock_b", "mock_c"]
+    secret_key: str = "changeme"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 60
 
     class Config:
         env_file = ".env"

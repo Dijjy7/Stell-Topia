@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 
 from app.config import settings
-from app.routers import flights
+from app.routers import auth, flights
 
 app = FastAPI(
     title=settings.app_name,
@@ -9,3 +9,4 @@ app = FastAPI(
 )
 
 app.include_router(flights.router, prefix=settings.api_prefix)
+app.include_router(auth.router, prefix=settings.api_prefix)
