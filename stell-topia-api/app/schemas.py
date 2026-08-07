@@ -1,3 +1,4 @@
+from datetime import datetime
 from enum import Enum
 from typing import Optional
 
@@ -47,3 +48,14 @@ class Flight(BaseModel):
 class SearchResponse(BaseModel):
     data: list[Flight]
     meta: dict
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str
+    expires_in: int
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
