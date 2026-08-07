@@ -1,9 +1,7 @@
 import random
 from datetime import datetime, timedelta
-from typing import Any
-
 from app.config import settings
-from app.schemas import Flight, SearchRequest
+from app.schemas import Flight, SearchRequest, SortOrder
 
 
 class BaseProvider:
