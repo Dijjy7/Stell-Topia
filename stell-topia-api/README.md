@@ -14,8 +14,27 @@ uvicorn main:app --reload
 
 | Method | Path | Description |
 |--------|------|-------------|
+| POST | `/api/v1/auth/login` | Login and obtain JWT access token |
+| POST | `/api/v1/auth/logout` | Logout (client-side token discard) |
 | GET | `/api/v1/health` | Liveness / readiness check |
 | POST | `/api/v1/flights/search` | Search available flights |
+
+## Login
+
+```bash
+curl -X POST http://localhost:8000/api/v1/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=demo@example.com&password=demopass"
+```
+
+Use the returned `access_token` as a Bearer token:
+
+```bash
+curl http://localhost:8000/api/v1/flights/search \
+  -H "Authorization: Bearer <access_token>" \
+  -H "Content-Type: application/json" \
+  -d '{"from":"JFK","to":"LHR","departure_date":"2025-01-15","passengers":1}'
+```
 
 ## Search Request
 
@@ -65,6 +84,9 @@ uvicorn main:app --reload
 |----------|---------|-------------|
 | `XLM_TO_USD_RATE` | `0.11` | Conversion rate for XLM pricing |
 | `EXTERNAL_PROVIDERS` | `mock_a,mock_b,mock_c` | Comma-separated provider names |
+| `SECRET_KEY` | `changeme` | JWT signing secret |
+| `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | JWT expiry in minutes |
 
 ## Running Tests
 
