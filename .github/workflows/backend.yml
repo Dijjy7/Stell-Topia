@@ -1,0 +1,26 @@
+name: stell-topia-backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "stell-topia-backend/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "stell-topia-backend/**"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: stell-topia-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - run: npm ci
+      - run: npm run build
