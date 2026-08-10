@@ -2,11 +2,11 @@ name: stell-topia-api
 
 on:
   push:
-    branches: [main]
+    branches: ['*']
     paths:
       - "stell-topia-api/**"
   pull_request:
-    branches: [main]
+    branches: ['*']
     paths:
       - "stell-topia-api/**"
 
