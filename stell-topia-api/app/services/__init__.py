@@ -1,3 +1,3 @@
-from app.services import providers
+from app.services import cache, providers
 
-__all__ = ["providers"]
+__all__ = ["cache", "providers"]
