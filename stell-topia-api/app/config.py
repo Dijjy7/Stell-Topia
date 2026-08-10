@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     secret_key: str = "changeme"
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
+    cache_ttl_seconds: int = 120
 
     class Config:
         env_file = ".env"
