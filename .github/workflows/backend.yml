@@ -5,10 +5,12 @@ on:
     branches: ['*']
     paths:
       - "stell-topia-backend/**"
+      - ".github/workflows/backend.yml"
   pull_request:
     branches: ['*']
     paths:
       - "stell-topia-backend/**"
+      - ".github/workflows/backend.yml"
 
 jobs:
   build:
