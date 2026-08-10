@@ -63,7 +63,7 @@ git clone https://github.com/<your-org>/stell-topia.git
 cd stell-topia
 
 # 2. Spin up the Python fare API
-cd services/fare-api
+cd stell-topia-api
 pip install -r requirements.txt
 uvicorn main:app --reload
 
