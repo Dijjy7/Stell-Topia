@@ -10,6 +10,14 @@ pip install -r requirements.txt
 uvicorn main:app --reload
 ```
 
+## Features
+
+- JWT authentication with bcrypt password hashing
+- In-memory caching for flight search results (configurable TTL)
+- Request ID and processing time middleware for tracing
+- Global exception handler with structured error responses
+- Search result sorting by price, duration, or departure time
+
 ## Endpoints
 
 | Method | Path | Description |
@@ -18,6 +26,12 @@ uvicorn main:app --reload
 | POST | `/api/v1/auth/logout` | Logout (client-side token discard) |
 | GET | `/api/v1/health` | Liveness / readiness check |
 | POST | `/api/v1/flights/search` | Search available flights |
+
+## Response Headers
+
+Every response includes:
+- `x-request-id` — unique request identifier
+- `x-process-time-ms` — server processing time in milliseconds
 
 ## Login
 
@@ -87,9 +101,17 @@ curl http://localhost:8000/api/v1/flights/search \
 | `SECRET_KEY` | `changeme` | JWT signing secret |
 | `JWT_ALGORITHM` | `HS256` | JWT signing algorithm |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | JWT expiry in minutes |
+| `CACHE_TTL_SECONDS` | `120` | In-memory cache TTL for search results |
 
 ## Running Tests
 
 ```bash
 pytest
+```
+
+## Lint and Type Check
+
+```bash
+ruff check .
+mypy app
 ```
