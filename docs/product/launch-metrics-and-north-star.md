@@ -2,6 +2,10 @@
 
 ## Purpose
 
+
+
+
+
 Account counts, message volume, and transaction totals are easy to grow and easy to fake. Optimizing them can reward spam, bots, and shallow activity that make the product look busy without making communication more trustworthy. This document defines a north-star metric for trusted communication, the driver metrics that move it, the quality guardrails that keep it honest, and stage-specific targets for design partner, private beta, and public beta.
 
 ## Guiding principles
