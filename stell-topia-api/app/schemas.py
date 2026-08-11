@@ -46,7 +46,7 @@ class Flight(BaseModel):
 
 class SearchResponse(BaseModel):
     data: list[Flight]
-    meta: dict
+    meta: dict[str, Any]
 
 
 class Token(BaseModel):
