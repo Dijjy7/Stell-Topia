@@ -21,13 +21,13 @@ class TokenPayload(BaseModel):
 def create_access_token(subject: str, expires_delta: Optional[timedelta] = None) -> str:
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
     payload = {"sub": subject, "exp": expire}
-    return jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm)
+    return str(jwt.encode(payload, settings.secret_key, algorithm=settings.jwt_algorithm))
 
 
 def decode_token(token: str) -> TokenPayload:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
-        return TokenPayload(sub=payload.get("sub"), exp=payload.get("exp"))
+        return TokenPayload(sub=payload["sub"], exp=payload.get("exp"))
     except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
