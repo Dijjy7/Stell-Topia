@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException
 from typing import cast
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.config import settings
 from app.schemas import SearchRequest, SearchResponse
