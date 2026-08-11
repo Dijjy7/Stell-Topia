@@ -1,5 +1,6 @@
 import random
 from datetime import datetime, timedelta
+
 from app.config import settings
 from app.schemas import Flight, SearchRequest, SortOrder
 

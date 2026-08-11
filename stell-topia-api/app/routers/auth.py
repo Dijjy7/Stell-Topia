@@ -1,12 +1,11 @@
 from datetime import timedelta
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from app.config import settings
-from app.security import pwd_context, decode_token, create_access_token
+from app.security import create_access_token, pwd_context
 
 router = APIRouter()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
@@ -20,7 +19,7 @@ fake_users_db = {
 
 
 @router.post("/login", tags=["auth"])
-async def login(form_data: OAuth2PasswordRequestForm = Depends()) -> dict:
+async def login(form_data: OAuth2PasswordRequestForm = Depends()) -> dict[str, Any]:
     user = fake_users_db.get(form_data.username)
     if not user or not pwd_context.verify(form_data.password, user["hashed_password"]):
         raise HTTPException(
@@ -39,5 +38,5 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends()) -> dict:
 
 
 @router.post("/logout", tags=["auth"])
-async def logout() -> dict:
+async def logout() -> dict[str, Any]:
     return {"message": "Logged out successfully"}

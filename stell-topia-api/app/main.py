@@ -1,8 +1,9 @@
-from app.config import settings
-from app.routers import auth, flights
-from app.middleware import RequestIdMiddleware
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+
+from app.config import settings
+from app.middleware import RequestIdMiddleware
+from app.routers import auth, flights
 
 app = FastAPI(
     title=settings.app_name,

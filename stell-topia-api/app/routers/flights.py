@@ -1,3 +1,5 @@
+from typing import cast
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.config import settings
@@ -19,7 +21,7 @@ async def search_flights(query: SearchRequest, _: str = Depends(get_current_user
     cache_key = f"search:{query.from_code}:{query.to_code}:{query.departure_date}:{query.passengers}:{query.sort_by}:{query.sort_order}"
     cached = cache.get(cache_key)
     if cached is not None:
-        return cached
+        return cast(SearchResponse, cached)
 
     try:
         flights = await fare_aggregator.search(query)

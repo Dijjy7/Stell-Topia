@@ -1,6 +1,5 @@
-from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -47,7 +46,7 @@ class Flight(BaseModel):
 
 class SearchResponse(BaseModel):
     data: list[Flight]
-    meta: dict
+    meta: dict[str, Any]
 
 
 class Token(BaseModel):
