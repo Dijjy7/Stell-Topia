@@ -12,6 +12,9 @@ on:
       - "stell-topia-backend/**"
       - ".github/workflows/backend.yml"
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -25,4 +28,6 @@ jobs:
           node-version: 22.x
           cache: npm
       - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npm run test -- --passWithNoTests
       - run: npm run build
