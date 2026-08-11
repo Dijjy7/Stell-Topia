@@ -12,6 +12,9 @@ on:
       - "stell-topia-api/**"
       - ".github/workflows/api.yml"
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
