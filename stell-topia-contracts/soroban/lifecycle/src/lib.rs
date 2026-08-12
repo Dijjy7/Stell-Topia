@@ -668,9 +668,7 @@ mod test {
         let events = env.events().all().filter_by_contract(&contract_id);
         assert_eq!(events.events().len(), 1);
         let body = &events.events()[0].body;
-        let ContractEventBody::V0(v0) = body else {
-            std::panic!("expected V0 event body");
-        };
+        let ContractEventBody::V0(v0) = body;
         assert_eq!(v0.topics.len(), 3);
         assert_eq!(
             v0.topics[0],
@@ -851,9 +849,7 @@ mod test {
 
         let events = env.events().all().filter_by_contract(&contract_id);
         let body = &events.events()[0].body;
-        let ContractEventBody::V0(v0) = body else {
-            std::panic!("expected V0 event body");
-        };
+        let ContractEventBody::V0(v0) = body;
 
         assert_eq!(v0.topics.len(), 3);
         assert_eq!(
