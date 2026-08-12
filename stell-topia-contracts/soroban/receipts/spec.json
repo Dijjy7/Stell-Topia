@@ -18,7 +18,10 @@
     { "name": "DuplicateReceipt", "value": 1 },
     { "name": "ReceiptNotFound", "value": 2 },
     { "name": "AlreadyRead", "value": 3 },
-    { "name": "CommitmentMismatch", "value": 4 }
+    { "name": "CommitmentMismatch", "value": 4 },
+    { "name": "GuardNotConfigured", "value": 5 },
+    { "name": "GuardAlreadyConfigured", "value": 6 },
+    { "name": "LifecycleRejected", "value": 7 }
   ],
   "functions": [
     {

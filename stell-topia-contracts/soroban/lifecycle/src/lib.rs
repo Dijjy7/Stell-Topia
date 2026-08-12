@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractclient, contracterror, contractevent, contractimpl, contracttype,
+    contract, contracterror, contractevent, contractimpl, contracttype,
     symbol_short, Address, BytesN, Env, Symbol,
 };
 use stealth_policies::{PoliciesContractClient, PolicyDecision, PolicyReason};
@@ -545,5 +545,325 @@ impl LifecycleContract {
             LifecycleTerminal::Expired => symbol_short!("expire"),
             LifecycleTerminal::Reclaimed => symbol_short!("reclaim"),
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    extern crate std;
+
+    use super::*;
+    use soroban_sdk::{
+        testutils::{Address as _, Events, Ledger, MockAuth, MockAuthInvoke},
+        xdr::{ContractEventBody, ScSymbol, ScVal},
+        Event as _, TryFromVal, Val, Vec as SorobanVec,
+    };
+    use stealth_policies::{MailboxPolicy, PoliciesContract, PoliciesContractClient};
+
+    fn hash(env: &Env, byte: u8) -> BytesN<32> {
+        BytesN::from_array(env, &[byte; 32])
+    }
+
+    fn configure_policies(env: &Env, owner: &Address) -> Address {
+        let policies = env.register(PoliciesContract, ());
+        let policies_client = PoliciesContractClient::new(env, &policies);
+        policies_client.set_policy(
+            &owner,
+            &MailboxPolicy {
+                allow_unknown: true,
+                require_verified: false,
+                require_receipt: false,
+                minimum_postage: 0,
+            },
+        );
+        policies
+    }
+
+    fn setup() -> (Env, Address, Address, Address, Address, Address) {
+        let env = Env::default();
+        env.mock_all_auths();
+        env.ledger().set_timestamp(42);
+        env.ledger().set_sequence_number(10);
+
+        let admin = Address::generate(&env);
+        let owner = Address::generate(&env);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+
+        let policies = configure_policies(&env, &owner);
+        let postage = Address::generate(&env);
+        let receipts = Address::generate(&env);
+
+        let contract_id = env.register(LifecycleContract, ());
+        let client = LifecycleContractClient::new(&env, &contract_id);
+        client.initialize(&policies, &postage, &receipts);
+
+        (env, contract_id, owner, sender, recipient, postage)
+    }
+
+    #[test]
+    fn initialize_sets_config() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let owner = Address::generate(&env);
+        let policies = configure_policies(&env, &owner);
+        let postage = Address::generate(&env);
+        let receipts = Address::generate(&env);
+
+        let contract_id = env.register(LifecycleContract, ());
+        let client = LifecycleContractClient::new(&env, &contract_id);
+        client.initialize(&policies, &postage, &receipts);
+
+        let config = client.config();
+        assert_eq!(config.policies, policies);
+        assert_eq!(config.postage, postage);
+        assert_eq!(config.receipts, receipts);
+    }
+
+    #[test]
+    fn bind_creates_open_record() {
+        let (env, contract_id, owner, sender, recipient, _) = setup();
+        let client = LifecycleContractClient::new(&env, &contract_id);
+        let message_id = hash(&env, 1);
+
+        let record = client.bind(
+            &message_id,
+            &owner,
+            &sender,
+            &recipient,
+            &100,
+            &true,
+            &false,
+        );
+        assert_eq!(record.message_id, message_id);
+        assert_eq!(record.owner, owner);
+        assert_eq!(record.sender, sender);
+        assert_eq!(record.recipient, recipient);
+        assert_eq!(record.amount, 100);
+        assert_eq!(record.verified, true);
+        assert_eq!(record.receipt_required, false);
+        assert_eq!(record.terminal, LifecycleTerminal::Open);
+        assert_eq!(record.bound_at, 42);
+    }
+
+    #[test]
+    fn bind_emits_event() {
+        let (env, contract_id, owner, sender, recipient, _) = setup();
+        let client = LifecycleContractClient::new(&env, &contract_id);
+        let message_id = hash(&env, 1);
+
+        client.bind(
+            &message_id,
+            &owner,
+            &sender,
+            &recipient,
+            &100,
+            &true,
+            &false,
+        );
+
+        let events = env.events().all().filter_by_contract(&contract_id);
+        assert_eq!(events.len(), 1);
+        let body = &events.events()[0].body;
+        let ContractEventBody::V0(v0) = body else {
+            std::panic!("expected V0 event body");
+        };
+        assert_eq!(v0.topics.len(), 3);
+        assert_eq!(v0.topics[0], ScVal::Symbol(ScSymbol(symbol_short!("bind").into_val(&env).into())));
+        assert_eq!(v0.topics[1], ScVal::Bytes(message_id.to_array().to_vec().try_into().unwrap()));
+    }
+
+    #[test]
+    fn verify_delivered_transitions_to_delivered() {
+        let (env, contract_id, owner, sender, recipient, _) = setup();
+        let client = LifecycleContractClient::new(&env, &contract_id);
+        let message_id = hash(&env, 1);
+
+        client.bind(
+            &message_id,
+            &owner,
+            &sender,
+            &recipient,
+            &100,
+            &true,
+            &false,
+        );
+
+        let receipt = ReceiptState {
+            message_id: message_id.clone(),
+            payload_hash: hash(&env, 2),
+            protocol_version: 1,
+            sender: sender.clone(),
+            recipient: recipient.clone(),
+            delivered_at: 100,
+            read_at: None,
+        };
+
+        let record = client.verify_delivered(&message_id, &receipt);
+        assert_eq!(record.terminal, LifecycleTerminal::Delivered);
+        assert_eq!(record.delivered_at, Some(100));
+    }
+
+    #[test]
+    fn verify_read_transitions_to_read() {
+        let (env, contract_id, owner, sender, recipient, _) = setup();
+        let client = LifecycleContractClient::new(&env, &contract_id);
+        let message_id = hash(&env, 1);
+
+        client.bind(
+            &message_id,
+            &owner,
+            &sender,
+            &recipient,
+            &100,
+            &true,
+            &false,
+        );
+
+        let receipt = ReceiptState {
+            message_id: message_id.clone(),
+            payload_hash: hash(&env, 2),
+            protocol_version: 1,
+            sender: sender.clone(),
+            recipient: recipient.clone(),
+            delivered_at: 100,
+            read_at: None,
+        };
+
+        client.verify_delivered(&message_id, &receipt);
+
+        env.ledger().set_timestamp(200);
+        let record = client.verify_read(&message_id, &receipt);
+        assert_eq!(record.terminal, LifecycleTerminal::Read);
+        assert_eq!(record.read_at, Some(200));
+    }
+
+    #[test]
+    fn verify_settle_transitions_to_settled() {
+        let (env, contract_id, owner, sender, recipient, _) = setup();
+        let client = LifecycleContractClient::new(&env, &contract_id);
+        let message_id = hash(&env, 1);
+
+        client.bind(
+            &message_id,
+            &owner,
+            &sender,
+            &recipient,
+            &100,
+            &true,
+            &false,
+        );
+
+        let postage = Postage {
+            sender: sender.clone(),
+            recipient: recipient.clone(),
+            amount: 100,
+            fee: 10,
+            created_at: 42,
+            expires_at: 100,
+            dispute_until: 100,
+            status: PostageStatus::Pending,
+        };
+
+        let record = client.verify_settle(&message_id, &postage);
+        assert_eq!(record.terminal, LifecycleTerminal::Settled);
+    }
+
+    #[test]
+    fn duplicate_bind_fails() {
+        let (env, contract_id, owner, sender, recipient, _) = setup();
+        let client = LifecycleContractClient::new(&env, &contract_id);
+        let message_id = hash(&env, 1);
+
+        client.bind(
+            &message_id,
+            &owner,
+            &sender,
+            &recipient,
+            &100,
+            &true,
+            &false,
+        );
+        assert_eq!(
+            client.try_bind(
+                &message_id,
+                &owner,
+                &sender,
+                &recipient,
+                &100,
+                &true,
+                &false
+            )
+            .unwrap_err()
+            .unwrap(),
+            Error::DuplicateLifecycle
+        );
+    }
+
+    #[test]
+    fn get_returns_record() {
+        let (env, contract_id, owner, sender, recipient, _) = setup();
+        let client = LifecycleContractClient::new(&env, &contract_id);
+        let message_id = hash(&env, 1);
+
+        let created = client.bind(
+            &message_id,
+            &owner,
+            &sender,
+            &recipient,
+            &100,
+            &true,
+            &false,
+        );
+
+        let fetched = client.get(&message_id);
+        assert_eq!(fetched, created);
+    }
+
+    #[test]
+    fn event_schema_is_stable() {
+        let (env, contract_id, owner, sender, recipient, _) = setup();
+        let client = LifecycleContractClient::new(&env, &contract_id);
+        let message_id = hash(&env, 1);
+
+        client.bind(
+            &message_id,
+            &owner,
+            &sender,
+            &recipient,
+            &100,
+            &true,
+            &false,
+        );
+
+        let events = env.events().all().filter_by_contract(&contract_id);
+        let body = &events.events()[0].body;
+        let ContractEventBody::V0(v0) = body else {
+            std::panic!("expected V0 event body");
+        };
+
+        assert_eq!(v0.topics.len(), 3);
+        assert_eq!(v0.topics[0], ScVal::Symbol(ScSymbol(symbol_short!("lifecycle").into_val(&env).into())));
+        assert_eq!(v0.topics[1], ScVal::Symbol(ScSymbol(symbol_short!("bind").into_val(&env).into())));
+        assert_eq!(v0.topics[2], ScVal::Bytes(message_id.to_array().to_vec().try_into().unwrap()));
+    }
+
+    #[test]
+    fn storage_keys_are_pinned() {
+        let env = Env::default();
+        let config_key = DataKey::Config;
+        let record_key = DataKey::Record(hash(&env, 1));
+
+        let config_val = Val::try_from_val(&env, &config_key).unwrap();
+        let record_val = Val::try_from_val(&env, &record_key).unwrap();
+
+        let config_vec: SorobanVec<Val> = SorobanVec::try_from_val(&env, &config_val).unwrap();
+        let record_vec: SorobanVec<Val> = SorobanVec::try_from_val(&env, &record_val).unwrap();
+
+        let config_symbol: Symbol = Symbol::try_from_val(&env, &config_vec.get(0).unwrap()).unwrap();
+        let record_symbol: Symbol = Symbol::try_from_val(&env, &record_vec.get(0).unwrap()).unwrap();
+
+        assert_eq!(config_symbol.to_string(), "Config");
+        assert_eq!(record_symbol.to_string(), "Record");
     }
 }

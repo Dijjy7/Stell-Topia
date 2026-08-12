@@ -14,6 +14,42 @@ message id and holds the full `Receipt` record; `delivered` creates it and `read
 updates its `read_at` field in place — the key itself never changes shape or moves
 storage space.
 
+## Storage lifetime (TTL) & archival
+
+Soroban assigns every storage entry a TTL and **archives** it once the TTL lapses;
+an archived entry reads back as absent. For this contract that is a *security*
+property, not just a liveness one. `delivered` enforces commitment immutability by
+reading the existing persistent `Receipt` and rejecting a re-commit with a different
+payload (`CommitmentMismatch`) or any overwrite (`DuplicateReceipt`). If the
+`Receipt` entry were archived, that lookup would see "absent", so a caller holding
+the sender's authorization could record a *different* commitment under the same
+`message_id` — silently defeating the guarantee that
+`duplicate_id_with_different_payload_fails` and the
+`property_delivery_immutability_invariants` proptest exist to protect. Archival would
+likewise break `read`/`get` and any off-chain consumer relying on the receipt.
+
+To resist archival, every **write path** extends the TTL of the entries it touches,
+using constants defined in `src/lib.rs` (`LEDGERS_PER_DAY = 17_280`, ~5s ledger close):
+
+| Entry              | Storage    | Extend when TTL below | Extend up to        | Extended by                     |
+| ------------------ | ---------- | --------------------- | ------------------- | ------------------------------- |
+| `Receipt(id)`      | Persistent | `RECEIPT_TTL_THRESHOLD` (~30d) | `RECEIPT_TTL_EXTEND_TO` (~90d) | `delivered`, `read`     |
+| `Guard`            | Instance   | `INSTANCE_TTL_THRESHOLD` (~7d) | `INSTANCE_TTL_EXTEND_TO` (~30d) | `configure_guard`, `delivered`, `read` |
+
+Both extend-to targets stay well under any network's `max_entry_ttl`, so `extend_ttl`
+never traps. The getters `get` and `guard` are deliberately left as **pure reads**:
+they do not extend TTL, so read-only simulation by indexers keeps a read-only
+footprint and predictable fees.
+
+**Residual limit.** A receipt that is delivered and then never read (or otherwise
+re-touched) still archives after its ~90-day window elapses, because nothing bumps it
+in the interim. Callers that require an unconditionally permanent record should either
+touch such receipts periodically from an off-chain keeper or add a read-path TTL
+extension; the contract's best-effort policy is to extend on every write. The TTL
+extension is covered by `configure_guard_extends_instance_ttl`,
+`delivered_extends_receipt_and_instance_ttl`, and `read_re_extends_receipt_ttl` in the
+`test` module.
+
 ## How `DataKey` is encoded
 
 Soroban's `#[contracttype]` derive encodes each enum variant as a host vector whose

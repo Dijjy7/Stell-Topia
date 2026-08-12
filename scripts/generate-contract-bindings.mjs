@@ -380,7 +380,7 @@ function camelCase(str) {
 // Main
 // ---------------------------------------------------------------------------
 
-const CONTRACTS = ["policies", "postage", "receipts"];
+const CONTRACTS = ["policies", "postage", "receipts", "lifecycle"];
 const OUT_DIR = join(ROOT, "src", "services", "stellar", "contracts");
 mkdirSync(OUT_DIR, { recursive: true });
 

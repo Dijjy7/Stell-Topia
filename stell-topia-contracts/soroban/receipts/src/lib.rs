@@ -175,6 +175,33 @@ pub enum Error {
     LifecycleRejected = 7,
 }
 
+/// Storage TTL (time-to-live) management.
+///
+/// Soroban archives a storage entry once its TTL lapses; an archived entry reads
+/// back as absent. That is a security concern here, not merely a liveness one:
+/// `delivered` enforces commitment immutability by looking up the existing
+/// persistent `Receipt` and rejecting a re-commit with a different payload
+/// (`CommitmentMismatch`) or any overwrite (`DuplicateReceipt`). If the `Receipt`
+/// entry were archived, that lookup would see "absent" and a caller holding the
+/// sender's authorization could record a *different* commitment under the same
+/// `message_id`, defeating the guarantee. Every write path therefore extends the
+/// TTL of the entries it touches so active receipts and the guard resist archival.
+/// See `docs/storage.md` for the policy and its residual limits.
+///
+/// One Stellar ledger closes roughly every 5 seconds, so ~17,280 ledgers ≈ 1 day.
+const LEDGERS_PER_DAY: u32 = 17_280;
+
+/// Persistent `Receipt` entries hold the durable delivery/read commitment: extend
+/// their TTL to ~90 days whenever it drops below ~30 days.
+const RECEIPT_TTL_THRESHOLD: u32 = 30 * LEDGERS_PER_DAY;
+const RECEIPT_TTL_EXTEND_TO: u32 = 90 * LEDGERS_PER_DAY;
+
+/// Instance storage holds the one-time `Guard` configuration: extend its TTL to
+/// ~30 days whenever it drops below ~7 days. Both targets stay well under any
+/// network's `max_entry_ttl`, so `extend_ttl` never traps.
+const INSTANCE_TTL_THRESHOLD: u32 = 7 * LEDGERS_PER_DAY;
+const INSTANCE_TTL_EXTEND_TO: u32 = 30 * LEDGERS_PER_DAY;
+
 #[contractimpl]
 impl ReceiptsContract {
     /// Configures the contract guard (e.g. the Lifecycle contract) that verifies
@@ -187,6 +214,7 @@ impl ReceiptsContract {
             return Err(Error::GuardAlreadyConfigured);
         }
         env.storage().instance().set(&DataKey::Guard, &guard);
+        Self::extend_instance_ttl(&env);
         Ok(())
     }
 
@@ -254,6 +282,8 @@ impl ReceiptsContract {
             read_at: None,
         };
         env.storage().persistent().set(&key, &receipt);
+        Self::extend_receipt_ttl(&env, &key);
+        Self::extend_instance_ttl(&env);
         Delivered {
             message_id,
             receipt: receipt.clone(),
@@ -289,6 +319,8 @@ impl ReceiptsContract {
 
         receipt.read_at = Some(read_at);
         env.storage().persistent().set(&key, &receipt);
+        Self::extend_receipt_ttl(&env, &key);
+        Self::extend_instance_ttl(&env);
         Read {
             message_id,
             receipt: receipt.clone(),
@@ -306,6 +338,22 @@ impl ReceiptsContract {
             .persistent()
             .get(&DataKey::Receipt(message_id))
             .ok_or(Error::ReceiptNotFound)
+    }
+
+    /// Extends the TTL of a persistent `Receipt` entry so the durable commitment
+    /// resists archival. Called on every write that touches the entry.
+    fn extend_receipt_ttl(env: &Env, key: &DataKey) {
+        env.storage()
+            .persistent()
+            .extend_ttl(key, RECEIPT_TTL_THRESHOLD, RECEIPT_TTL_EXTEND_TO);
+    }
+
+    /// Extends the TTL of instance storage, which holds the one-time `Guard`
+    /// configuration read by `delivered`, `read`, and `guard`.
+    fn extend_instance_ttl(env: &Env) {
+        env.storage()
+            .instance()
+            .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND_TO);
     }
 
     fn verify_guard(env: &Env, message_id: BytesN<32>, receipt: &Receipt) -> Result<(), Error> {
@@ -344,6 +392,7 @@ mod test {
     use soroban_sdk::{
         symbol_short,
         testutils::{
+            storage::{Instance as _, Persistent as _},
             Address as _, AuthorizedFunction, AuthorizedInvocation, Ledger, MockAuth,
             MockAuthInvoke,
         },
@@ -739,6 +788,72 @@ mod test {
                 .unwrap(),
             Error::GuardNotConfigured
         );
+    }
+
+    #[test]
+    fn configure_guard_extends_instance_ttl() {
+        let env = Env::default();
+        let contract_id = env.register(ReceiptsContract, ());
+        let client = ReceiptsContractClient::new(&env, &contract_id);
+        let guard = Address::generate(&env);
+
+        client.configure_guard(&guard);
+
+        let instance_ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        assert_eq!(instance_ttl, INSTANCE_TTL_EXTEND_TO);
+    }
+
+    #[test]
+    fn delivered_extends_receipt_and_instance_ttl() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(ReceiptsContract, ());
+        let client = ReceiptsContractClient::new(&env, &contract_id);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let message_id = hash(&env, 7);
+        configure_lifecycle(&env, &contract_id, &message_id, &sender, &recipient);
+
+        client.delivered(&message_id, &hash(&env, 8), &1, &sender, &recipient);
+
+        let key = DataKey::Receipt(message_id.clone());
+        let (receipt_ttl, instance_ttl) = env.as_contract(&contract_id, || {
+            (
+                env.storage().persistent().get_ttl(&key),
+                env.storage().instance().get_ttl(),
+            )
+        });
+        assert_eq!(receipt_ttl, RECEIPT_TTL_EXTEND_TO);
+        assert_eq!(instance_ttl, INSTANCE_TTL_EXTEND_TO);
+    }
+
+    #[test]
+    fn read_re_extends_receipt_ttl() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register(ReceiptsContract, ());
+        let client = ReceiptsContractClient::new(&env, &contract_id);
+        let sender = Address::generate(&env);
+        let recipient = Address::generate(&env);
+        let message_id = hash(&env, 7);
+        configure_lifecycle(&env, &contract_id, &message_id, &sender, &recipient);
+
+        client.delivered(&message_id, &hash(&env, 8), &1, &sender, &recipient);
+
+        // Advance the ledger far enough that the receipt's remaining TTL drops below
+        // RECEIPT_TTL_THRESHOLD, so `read` must re-extend it rather than leave it to
+        // archive. delivered set live_until = RECEIPT_TTL_EXTEND_TO at sequence 0.
+        let advanced = RECEIPT_TTL_EXTEND_TO - RECEIPT_TTL_THRESHOLD + 1;
+        env.ledger().set_sequence_number(advanced);
+
+        let key = DataKey::Receipt(message_id.clone());
+        let before = env.as_contract(&contract_id, || env.storage().persistent().get_ttl(&key));
+        assert!(before < RECEIPT_TTL_THRESHOLD);
+
+        client.read(&message_id);
+
+        let after = env.as_contract(&contract_id, || env.storage().persistent().get_ttl(&key));
+        assert_eq!(after, RECEIPT_TTL_EXTEND_TO);
     }
 }
 
