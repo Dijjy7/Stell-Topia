@@ -668,9 +668,9 @@ mod vectors {
             let expected = c["expected"]["valid"].as_bool().unwrap();
             let got = validate_hash32(input);
             assert_eq!(got.is_ok(), expected, "vectors: {}", id);
-            if got.is_ok() {
+            if let Ok(normalized) = got {
                 if let Some(exp_norm) = c["expected"]["normalized"].as_str() {
-                    assert_eq!(got.unwrap(), exp_norm, "vectors: {} normalised", id);
+                    assert_eq!(normalized, exp_norm, "vectors: {} normalised", id);
                 }
             }
         }
@@ -1165,14 +1165,12 @@ mod proptests {
             } else if require_receipt && !receipt {
                 prop_assert!(!decision.allowed);
                 prop_assert_eq!(decision.reason, PolicyReason::ReceiptRequired);
+            } else if postage >= tier_postage {
+                prop_assert!(decision.allowed);
+                prop_assert_eq!(decision.reason, PolicyReason::TierSatisfied);
             } else {
-                if postage >= tier_postage {
-                    prop_assert!(decision.allowed);
-                    prop_assert_eq!(decision.reason, PolicyReason::TierSatisfied);
-                } else {
-                    prop_assert!(!decision.allowed);
-                    prop_assert_eq!(decision.reason, PolicyReason::InsufficientPostage);
-                }
+                prop_assert!(!decision.allowed);
+                prop_assert_eq!(decision.reason, PolicyReason::InsufficientPostage);
             }
         }
     }
@@ -1215,7 +1213,7 @@ mod auth_boundaries {
         assert!(client.try_set_policy(&owner, &permissive_policy()).is_err());
 
         // Nothing was written: defaults still apply and the version is unbumped.
-        assert_eq!(client.get_policy(&owner).allow_unknown, false);
+        assert!(!client.get_policy(&owner).allow_unknown);
         assert_eq!(client.policy_version(&owner), 0);
     }
 
