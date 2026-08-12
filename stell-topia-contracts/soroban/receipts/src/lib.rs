@@ -356,7 +356,8 @@ impl ReceiptsContract {
             .extend_ttl(INSTANCE_TTL_THRESHOLD, INSTANCE_TTL_EXTEND_TO);
     }
 
-    fn verify_guard(env: &Env, message_id: BytesN<32>, receipt: &Receipt) -> Result<(), Error> {        let guard = env
+    fn verify_guard(env: &Env, message_id: BytesN<32>, receipt: &Receipt) -> Result<(), Error> {
+        let guard = env
             .storage()
             .instance()
             .get(&DataKey::Guard)
@@ -798,8 +799,7 @@ mod test {
 
         client.configure_guard(&guard);
 
-        let instance_ttl =
-            env.as_contract(&contract_id, || env.storage().instance().get_ttl());
+        let instance_ttl = env.as_contract(&contract_id, || env.storage().instance().get_ttl());
         assert_eq!(instance_ttl, INSTANCE_TTL_EXTEND_TO);
     }
 
