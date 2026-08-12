@@ -233,6 +233,7 @@ impl PoliciesContract {
         Self::set_sender_rule_as(env, owner.clone(), owner, sender, rule)
     }
 
+    #[allow(deprecated)] // preserve pinned event wire format; see set_policy_as
     pub fn set_sender_rule_as(
         env: Env,
         owner: Address,
@@ -270,6 +271,7 @@ impl PoliciesContract {
         Self::set_sender_tier_as(env, owner.clone(), owner, sender, minimum_postage)
     }
 
+    #[allow(deprecated)] // preserve pinned event wire format; see set_policy_as
     pub fn set_sender_tier_as(
         env: Env,
         owner: Address,
