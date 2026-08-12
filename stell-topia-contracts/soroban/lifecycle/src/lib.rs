@@ -570,7 +570,7 @@ mod test {
         let policies = env.register(PoliciesContract, ());
         let policies_client = PoliciesContractClient::new(env, &policies);
         policies_client.set_policy(
-            &owner,
+            owner,
             &MailboxPolicy {
                 allow_unknown: true,
                 require_verified: false,
@@ -643,8 +643,8 @@ mod test {
         assert_eq!(record.sender, sender);
         assert_eq!(record.recipient, recipient);
         assert_eq!(record.amount, 100);
-        assert_eq!(record.verified, true);
-        assert_eq!(record.receipt_required, false);
+        assert!(record.verified);
+        assert!(!record.receipt_required);
         assert_eq!(record.terminal, LifecycleTerminal::Open);
         assert_eq!(record.bound_at, 42);
     }
