@@ -9,6 +9,9 @@ const EncryptionMetadataSchema = z.object({
   mac: z.string(),
 });
 
+
+
+
 const PayloadSchema = z.object({
   version: z.string(),
   sender: stellarAddressSchema,
