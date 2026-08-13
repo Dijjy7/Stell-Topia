@@ -1,7 +1,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contractevent, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
+    contract, contracterror, contractimpl, contracttype, symbol_short, Address, Env,
 };
 
 #[contract]
@@ -58,46 +58,6 @@ pub struct PolicyDecision {
     pub reason: PolicyReason,
     pub required_postage: i128,
     pub rule: SenderRule,
-    pub version: u32,
-}
-
-#[contractevent(topics = ["policy"])]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PolicyEvent {
-    #[topic]
-    pub owner: Address,
-    pub policy: VersionedMailboxPolicy,
-}
-
-#[contractevent(topics = ["delegate"])]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DelegateEvent {
-    #[topic]
-    pub owner: Address,
-    #[topic]
-    pub delegate: Address,
-    pub scope: DelegateScope,
-}
-
-#[contractevent(topics = ["sender"])]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct SenderEvent {
-    #[topic]
-    pub owner: Address,
-    #[topic]
-    pub sender: Address,
-    pub rule: SenderRule,
-    pub version: u32,
-}
-
-#[contractevent(topics = ["tier"])]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TierEvent {
-    #[topic]
-    pub owner: Address,
-    #[topic]
-    pub sender: Address,
-    pub minimum_postage: i128,
     pub version: u32,
 }
 
